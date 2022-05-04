@@ -65,6 +65,11 @@ module RISCV.Helpers (
 , prettyCSR_imm
 , prettyR_A
 , prettyR_A_1op
+, pretty_V_VVop
+, pretty_V_VIop
+, pretty_V_VXop
+, pretty_V_Mem
+, pretty_V_Vset
 , prettyR_FF_1op
 , prettyR_IF_1op
 , prettyR_FI_1op
@@ -113,6 +118,12 @@ reg = intReg
 intReg :: Integer -> String
 intReg i
   | i >= 0 && i < 32 = "x" ++ show i
+  | otherwise = "unknownRegIdx" ++ show i
+
+
+vecReg :: Integer -> String
+vecReg i
+  | i >= 0 && i < 32 = "v" ++ show i
   | otherwise = "unknownRegIdx" ++ show i
 
 -- | Gives a RISCV register ABI name 'String' when provided an 'Integer' index
@@ -278,6 +289,24 @@ prettyR_A_1op instr aq rl rs1 rd =
   concat $  [instr, " ", reg rd, ", ", reg rs1]
          ++ [if aq == 1 then " (aq)" else ""]
          ++ [if rl == 1 then " (rl)" else ""]
+
+-- | V-type, single operand Atomic instruction pretty printer
+pretty_V_VVop :: String -> Integer -> Integer -> Integer -> String
+pretty_V_VVop instr vs2 vs1 vd =
+  concat $  [instr, " ", vecReg vd, ", ", vecReg vs1, ", ", vecReg vs2]
+pretty_V_VIop :: String -> Integer -> Integer -> Integer -> String
+pretty_V_VIop instr vs2 imm vd =
+  concat $  [instr, " ", vecReg vd, ", ", vecReg vs2, ", ", int imm]
+pretty_V_VXop :: String -> Integer -> Integer -> Integer -> String
+pretty_V_VXop instr vs2 rs1 vd =
+  concat $  [instr, " ", vecReg vd, ", ", reg rs1, ", ", vecReg vs2]
+pretty_V_Mem :: String -> Integer -> Integer -> String
+pretty_V_Mem instr rs1 vs1 =
+  concat $  [instr, " ", vecReg vs1, ", ", reg rs1]
+pretty_V_Vset :: String -> Integer -> Integer -> Integer -> String
+pretty_V_Vset instr vsew rs1 rd  =
+  concat $  [instr, " ", reg rd, ", ", reg rs1, ", vsew: ", int vsew]
+
 
 -- ** Floating Point
 

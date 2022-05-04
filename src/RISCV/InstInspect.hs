@@ -68,6 +68,7 @@ import RISCV.RV64_M
 import RISCV.RV64_A
 import RISCV.RV64_F
 import RISCV.RV64_D
+import RISCV.RV64_V
 import RISCV.Helpers
 
 import Text.Printf
@@ -81,7 +82,7 @@ rv_pretty instr = case decode 32 instr instList of
                    ++ rv32_m_disass ++ rv64_m_disass
                    ++ rv32_a_disass ++ rv64_a_disass
                    ++ rv32_f_disass ++ rv64_f_disass
-                   ++ rv32_d_disass ++ rv64_d_disass
+                   ++ rv32_d_disass ++ rv64_d_disass ++ rv64_v_disass
                    ++ rv32_zicsr_disass
                    ++ rv32_zifencei_disass
                    ++ rv32_xcheri_disass

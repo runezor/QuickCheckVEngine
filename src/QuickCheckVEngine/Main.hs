@@ -63,6 +63,7 @@ import QuickCheckVEngine.Test
 import QuickCheckVEngine.Templates.Utils
 import QuickCheckVEngine.Templates.GenAll
 import QuickCheckVEngine.Templates.GenArithmetic
+import QuickCheckVEngine.Templates.GenVector
 import QuickCheckVEngine.Templates.GenMemory
 import QuickCheckVEngine.Templates.GenCSRs
 import QuickCheckVEngine.Templates.RandomTest
@@ -208,6 +209,7 @@ allTests = [
            , ("control",    "Control Flow Verification",                              const True,                               const $ T.repeatTillEnd gen_rv32_i_controlflow)
            , ("cache",      "Cache Verification",                                     const True,                               const $ T.repeatTillEnd gen_rv32_i_cache)
            , ("arith64",    "RV64 Arithmetic Verification",                           has_xlen_64,                              const $ T.repeatTillEnd gen_rv64_i_arithmetic)
+           , ("vector",     "RV64 Vector subset Verification",                        has_xlen_64,                              const $ T.repeatTillEnd gen_rv64_v_arithmetic)
            , ("mem64",      "RV64 Memory Verification",                               has_xlen_64,                              const $ T.repeatTillEnd gen_rv64_i_memory)
            , ("cache64",    "RV64 Cache Verification",                                has_xlen_64,                              const $ T.repeatTillEnd gen_rv64_i_cache)
            -- Note: no rv64 specific control flow instructions
