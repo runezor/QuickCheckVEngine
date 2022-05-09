@@ -56,7 +56,7 @@ gen_rv64_v_arithmetic = random $ do
   tmpReg        <- src
   vd            <- dest
   sew           <- choose (0, 2) :: Gen Int
-  w             <- choose (2, 4) :: Gen Int -- Set to 3 for basic rvv-Flute
+  w             <- choose (3, 3) :: Gen Int -- Set to (3,3) for basic rvv-Flute, (2,4) for 128 version
   arith_index   <- choose (0, 11) :: Gen Int
   rnd_num       <- choose (0, 65535) :: Gen Int
   rnd_shift     <- choose (0, 48) :: Gen Int
