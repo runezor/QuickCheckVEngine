@@ -95,6 +95,7 @@ data Options = Options
     , saveDir          :: Maybe FilePath
     , timeoutDelay     :: Int
     , testLen          :: Int
+    , optSingleImp     :: Bool
     , optShrink        :: Bool
     , optSave          :: Bool
     , optContinueOnFail:: Bool
@@ -123,6 +124,7 @@ defaultOptions = Options
     , optSave          = True
     , optContinueOnFail= False
     , optIgnoreAsserts = False
+    , optSingleImp     = False
     }
 
 options :: [OptDescr (Options -> Options)]
@@ -187,6 +189,9 @@ options =
   , Option []        ["ignore-asserts"]
       (NoArg (\ opts -> opts { optIgnoreAsserts = True }))
         "Don't fail tests if assertions fail"
+  , Option []        ["single-implementation"]
+      (NoArg (\ opts -> opts { optSingleImp = True }))
+        "Run with only implementation A, testing asserts only (if enabled)"
   ]
 
 commandOpts :: [String] -> IO (Options, [String])
@@ -228,7 +233,7 @@ allTests = [
            , ("csr",        "Zicsr Extension Verification",                           has_icsr,                                 const $ T.repeatTillEnd gen_rv32_i_zicsr)
            , ("fencei",     "Zifencei Extension Verification",                        has_ifencei,                              const $ T.repeatTillEnd gen_rv32_i_zifencei_memory)
            , ("fencei64",   "RV64 Zifencei Extension Verification",                   andPs [has_ifencei, has_xlen_64],         const $ T.repeatTillEnd gen_rv64_i_zifencei_memory)
-           , ("pte",        "PTE Verification",                                       has_s,                                    const $ T.repeatTillEnd $ T.uniform [gen_pte_perms, gen_pte_trans])
+           , ("pte",        "PTE Verification",                                       has_s,                                    const $ T.repeatN 2 $ T.uniform [gen_pte_perms, gen_pte_trans])
            , ("hpm",        "HPM Verification",                                       has_icsr,                                 T.repeatTillEnd . genHPM)
            , ("capinspect", "Xcheri Extension Capability Inspection Verification",    has_cheri,                                const $ T.repeatTillEnd genCHERIinspection)
            , ("caparith",   "Xcheri Extension Capability Arithmetic Verification",    has_cheri,                                const $ T.repeatTillEnd genCHERIarithmetic)
@@ -252,14 +257,8 @@ main = withSocketsDo $ do
   when (optVerbosity flags > 1) $ print flags
   let archDesc = arch flags
   -- initialize model and implementation sockets
-  addrA <- resolve (impAIP flags) (impAPort flags)
-  addrB <- resolve (impBIP flags) (impBPort flags)
-  socA <- open "implementation-A" addrA
-  socB <- open "implementation-B" addrB
-  socATraceVer <- rvfiNegotiateVersion socA "implementation A" (optVerbosity flags)
-  socBTraceVer <- rvfiNegotiateVersion socB "implementation B" (optVerbosity flags)
-  let connA = RvfiDiiConnection socA socATraceVer "implementation A"
-  let connB = RvfiDiiConnection socB socBTraceVer "implementation B"
+  implA <- rvfiDiiOpen (impAIP flags) (impAPort flags) (optVerbosity flags) "implementation-A"
+  m_implB <- if optSingleImp flags then return Nothing else Just <$> rvfiDiiOpen (impBIP flags) (impBPort flags) (optVerbosity flags) "implementation-B"
 
   addrInstr <- mapM (resolve "127.0.0.1") (instrPort flags)
   instrSoc <- mapM (open "instruction-generator-port") addrInstr
@@ -268,7 +267,7 @@ main = withSocketsDo $ do
   let checkSingle :: Test TestResult -> Int -> Bool -> Int -> (Test TestResult -> IO ()) -> IO Result
       checkSingle test verbosity doShrink len onFail = do
         quickCheckWithResult (Args Nothing 1 1 len (verbosity > 0) (if doShrink then 1000 else 0))
-                             (prop connA connB alive onFail archDesc (timeoutDelay flags) verbosity (optIgnoreAsserts flags) (return test))
+                             (prop implA m_implB alive onFail archDesc (timeoutDelay flags) verbosity (optIgnoreAsserts flags) (return test))
   let check_mcause_on_trap :: Test TestResult -> Test TestResult
       check_mcause_on_trap (trace :: Test TestResult) = trace <> if or (hasTrap <$> trace) then wrapTest testSuffix else mempty
         where hasTrap (_, a, b) = maybe False rvfiIsTrap a || maybe False rvfiIsTrap b
@@ -277,7 +276,7 @@ main = withSocketsDo $ do
                                                 , csrrs 1 (unsafe_csrs_indexFromName "mccsr" ) 0 ]
 
   let saveOnFail :: Test TestResult -> (Test TestResult -> Test TestResult) -> IO ()
-      saveOnFail test testTrans = runImpls connA connB alive (timeoutDelay flags) 0 test onTrace onDeath onDeath
+      saveOnFail test testTrans = runImpls implA m_implB alive (timeoutDelay flags) 0 test onTrace onDeath onDeath
         where onDeath = putStrLn "Failure rerunning test"
               onTrace trace = do
                 writeFile "last_failure.S" ("# last failing test case:\n" ++ show trace)
@@ -304,7 +303,7 @@ main = withSocketsDo $ do
   let checkResult = if optVerbosity flags > 1 then verboseCheckWithResult else quickCheckWithResult
   let checkGen gen remainingTests =
         checkResult (Args Nothing remainingTests 1 (testLen flags) (optVerbosity flags > 0) (if optShrink flags then 1000 else 0))
-                    (prop connA connB alive checkTrapAndSave archDesc (timeoutDelay flags) (optVerbosity flags) (optIgnoreAsserts flags) gen)
+                    (prop implA m_implB alive checkTrapAndSave archDesc (timeoutDelay flags) (optVerbosity flags) (optIgnoreAsserts flags) gen)
   failuresRef <- newIORef 0
   let checkFile (memoryInitFile :: Maybe FilePath) (skipped :: Int) (fileName :: FilePath)
         | skipped == 0 = do putStrLn $ "Reading trace from " ++ fileName
@@ -352,8 +351,8 @@ main = withSocketsDo $ do
               doCheck (liftM (wrapTest . singleSeq . (MkInstruction <$>)) $ listOf (genInstrServer sock)) (nTests flags)
               return ()
   --
-  close socA
-  close socB
+  rvfiDiiClose implA
+  maybe (pure ()) rvfiDiiClose m_implB
   --
   failures <- readIORef failuresRef
   if failures == 0 then exitSuccess else exitWith $ ExitFailure failures
@@ -369,3 +368,9 @@ main = withSocketsDo $ do
       connect sock (addrAddress addr)
       putStrLn ("connected to " ++ dest ++ " ...")
       return sock
+    rvfiDiiOpen ip port verb name = do
+      addr <- resolve ip port
+      soc <- open name addr
+      traceVer <- rvfiNegotiateVersion soc name verb
+      return $ RvfiDiiConnection soc traceVer name
+    rvfiDiiClose (RvfiDiiConnection sock _ _) = close sock
